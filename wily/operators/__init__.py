@@ -193,7 +193,7 @@ def get_metric(revision, operator, path, key):
     Get a metric from the cache.
 
     :param revision: The revision id.
-    :type  revision: ``str``
+    :type  revision: ``dict``
 
     :param operator: The operator name.
     :type  operator: ``str``

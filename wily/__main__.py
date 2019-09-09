@@ -241,7 +241,7 @@ def diff(ctx, files, metrics, all, detail):
     from wily.commands.diff import diff
 
     logger.debug(f"Running diff on {files} for metric {metrics}")
-    diff(
+    return diff(
         config=config, files=files, metrics=metrics, changes_only=not all, detail=detail
     )
 

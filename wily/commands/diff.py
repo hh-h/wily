@@ -5,19 +5,15 @@ Compares metrics between uncommitted files and indexed files.
 """
 import os
 
-import tabulate
-
 from wily import logger
-from wily.config import DEFAULT_GRID_STYLE
 from wily.operators import (
     resolve_metric,
     resolve_operator,
     get_metric,
-    GOOD_COLORS,
-    BAD_COLORS,
     OperatorLevel,
 )
 from wily.state import State
+from collections import defaultdict
 
 
 def diff(config, files, metrics, changes_only=True, detail=True):
@@ -48,7 +44,6 @@ def diff(config, files, metrics, changes_only=True, detail=True):
     operators = {resolve_operator(metric.split(".")[0]) for metric in metrics}
     metrics = [(metric.split(".")[0], resolve_metric(metric)) for metric in metrics]
     data = {}
-    results = []
 
     # Build a set of operators
     _operators = [operator.cls(config) for operator in operators]
@@ -60,29 +55,33 @@ def diff(config, files, metrics, changes_only=True, detail=True):
         data[operator.name] = operator.run(None, config)
     os.chdir(cwd)
 
-    # Write a summary table..
-    extra = []
+    extra = set()
     for operator, metric in metrics:
         if detail and resolve_operator(operator).level == OperatorLevel.Object:
             for file in files:
                 try:
-                    extra.extend(
+                    extra.update(
                         [
-                            f"{file}:{k}"
-                            for k in data[operator][file].keys()
-                            if k != metric.name
-                            and isinstance(data[operator][file][k], dict)
+                            (file, key)
+                            for key, value in data[operator][file].items()
+                            if key != metric.name
+                            and isinstance(value, dict)
                         ]
                     )
                 except KeyError:
                     logger.debug(f"File {file} not in cache")
                     logger.debug("Cache follows -- ")
                     logger.debug(data[operator])
+
+    files = [(file, None) for file in files]
     files.extend(extra)
     logger.debug(files)
-    for file in files:
-        metrics_data = []
+
+    results = defaultdict(dict)
+    for filename, module in files:
+        metrics_data = {}
         has_changes = False
+        file = filename if module is None else f"{filename}:{module}"
         for operator, metric in metrics:
             try:
                 current = last_revision.get(
@@ -96,37 +95,13 @@ def diff(config, files, metrics, changes_only=True, detail=True):
                 new = "-"
             if new != current:
                 has_changes = True
-            if metric.type in (int, float) and new != "-" and current != "-":
-                if current > new:
-                    metrics_data.append(
-                        "{0:n} -> \u001b[{2}m{1:n}\u001b[0m".format(
-                            current, new, BAD_COLORS[metric.measure]
-                        )
-                    )
-                elif current < new:
-                    metrics_data.append(
-                        "{0:n} -> \u001b[{2}m{1:n}\u001b[0m".format(
-                            current, new, GOOD_COLORS[metric.measure]
-                        )
-                    )
-                else:
-                    metrics_data.append("{0:n} -> {1:n}".format(current, new))
-            else:
-                if current == "-" and new == "-":
-                    metrics_data.append("-")
-                else:
-                    metrics_data.append("{0} -> {1}".format(current, new))
+            metrics_data[metric] = {
+                'old': current,
+                'new': new,
+            }
         if has_changes or not changes_only:
-            results.append((file, *metrics_data))
+            results[filename][module] = metrics_data
         else:
             logger.debug(metrics_data)
 
-    descriptions = [metric.description for operator, metric in metrics]
-    headers = ("File", *descriptions)
-    if len(results) > 0:
-        print(
-            # But it still makes more sense to show the newest at the top, so reverse again
-            tabulate.tabulate(
-                headers=headers, tabular_data=results, tablefmt=DEFAULT_GRID_STYLE
-            )
-        )
+    return results
